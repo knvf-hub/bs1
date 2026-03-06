@@ -76,6 +76,3 @@ Do not commit .venv folder
 Use .env for environment variables
 
 
----
-
-ถ้าคุณอยากให้ README ดู production มากขึ้น (เพิ่ม badge, docker, Makefile, pre-commit, lint, formatter ฯลฯ) บอกได้ เดี๋ยวจัดให้ระดับมืออาชีพเลย 🔥
