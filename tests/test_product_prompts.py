@@ -7,7 +7,7 @@ client = TestClient(app)
 
 def test_generate_product_prompts():
     payload = {
-        "product_url": "https://shopee.co.th/แก้วน้ำเก็บอุณหภูมิสีครีม-i.12345.67890",
+        "product_url": "https://s.shopee.co.th/1BHQ6Vr75e",
         "target_platform": "tiktok",
         "target_audiences": ["วัยทำงาน", "นักศึกษา"],
         "style_hint": None,
@@ -17,15 +17,48 @@ def test_generate_product_prompts():
         "language": "th",
     }
 
-    res = client.post("/api/v1/product-prompts/generate", json=payload)
-    assert res.status_code == 200
+    response = client.post("/api/v1/product-prompts/generate", json=payload)
 
-    body = res.json()
-    assert body["product"]["source"] == "shopee"
-    assert body["product"]["title"] != ""
-    assert len(body["prompts"]) == 5
+    assert response.status_code == 200
 
-    first = body["prompts"][0]
+    body = response.json()
+
+    assert "product" in body
+    assert "analysis" in body
+    assert "prompts" in body
+
+    product = body["product"]
+    assert product["source"] == "shopee"
+    assert isinstance(product["title"], str)
+    assert product["title"].strip() != ""
+
+    analysis = body["analysis"]
+    assert "suggested_audiences" in analysis
+    assert "suggested_styles" in analysis
+    assert "platform_strategy" in analysis
+    assert isinstance(analysis["platform_strategy"], str)
+    assert analysis["platform_strategy"].strip() != ""
+
+    prompts = body["prompts"]
+    assert isinstance(prompts, list)
+    assert len(prompts) == 5
+
+    first = prompts[0]
+    assert "index" in first
+    assert "title" in first
+    assert "audience" in first
+    assert "style" in first
+    assert "angle" in first
     assert "prompt" in first
     assert "negative_prompt" in first
-    assert first["prompt"] != ""
+
+    assert isinstance(first["index"], int)
+    assert isinstance(first["title"], str)
+    assert isinstance(first["audience"], str)
+    assert isinstance(first["style"], str)
+    assert isinstance(first["angle"], str)
+    assert isinstance(first["prompt"], str)
+    assert isinstance(first["negative_prompt"], str)
+
+    assert first["prompt"].strip() != ""
+    assert first["negative_prompt"].strip() != ""
