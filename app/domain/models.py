@@ -5,7 +5,7 @@ from pydantic import BaseModel
 
 
 class WorkflowResult(BaseModel):
-    status: str  # "success" | "error"
+    status: str  # "success" | "error" | "cancelled"
     output: dict
 
 
@@ -14,8 +14,7 @@ class ExecutionRecord(BaseModel):
     workflow: str
     payload: dict
 
-    # status แยกให้ชัด
-    state: str  # "running" | "success" | "error"
+    state: str     # "running" | "success" | "error" | "cancelled"
     result: WorkflowResult | None = None
 
     created_at: datetime

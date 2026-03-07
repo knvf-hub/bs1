@@ -72,6 +72,7 @@ def update_execution(
 def list_executions(path: Path | None = None) -> list[ExecutionRecord]:
     p = path or _default_data_path()
     _ensure_file(p)
+
     items = json.loads(p.read_text(encoding="utf-8"))
     return [ExecutionRecord.model_validate(x) for x in items]
 
@@ -81,3 +82,18 @@ def get_execution(exec_id: str, path: Path | None = None) -> ExecutionRecord | N
         if rec.id == exec_id:
             return rec
     return None
+
+
+def cancel_execution(exec_id: str, path: Path | None = None) -> ExecutionRecord | None:
+    current = get_execution(exec_id, path=path)
+    if current is None:
+        return None
+
+    if current.state != "running":
+        return current
+
+    cancelled_result = WorkflowResult(
+        status="cancelled",
+        output={"message": "execution cancelled before processing"},
+    )
+    return update_execution(exec_id, state="cancelled", result=cancelled_result, path=path)

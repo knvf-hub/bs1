@@ -19,7 +19,6 @@ async def run_workflow_async(
     executor: InMemoryExecutor,
 ) -> ExecutionRecord:
     exec_id = uuid4().hex
-
     record = save_execution(
         exec_id=exec_id,
         workflow=name,
@@ -27,7 +26,6 @@ async def run_workflow_async(
         state="running",
         result=None,
     )
-
     await executor.enqueue(Job(exec_id=exec_id, workflow=name, payload=payload))
     return record
 
@@ -37,4 +35,11 @@ def list_execution_history() -> list[ExecutionRecord]:
 
 
 def read_execution(exec_id: str) -> ExecutionRecord | None:
+    return get_execution(exec_id)
+
+
+def cancel_execution_by_id(exec_id: str, executor: InMemoryExecutor) -> ExecutionRecord | None:
+    ok = executor.cancel(exec_id)
+    if not ok:
+        return get_execution(exec_id)
     return get_execution(exec_id)

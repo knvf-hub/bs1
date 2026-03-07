@@ -6,7 +6,13 @@ class Settings(BaseSettings):
     api_prefix: str = "/api/v1"
     debug: bool = False
 
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
+    openai_api_key: str | None = None
+    openai_prompt_model: str = "gpt-5.4"
+
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+    )
 
 
 settings = Settings()
