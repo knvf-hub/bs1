@@ -1,0 +1,21 @@
+[
+  {
+    "id": "c1c627d0369148449bd49ea2b339d2eb",
+    "workflow": "hello",
+    "payload": {
+      "user": "Frank"
+    },
+    "state": "success",
+    "result": {
+      "status": "success",
+      "output": {
+        "message": "hello from bs1",
+        "payload": {
+          "user": "Frank"
+        }
+      }
+    },
+    "created_at": "2026-03-06T15:53:00.267266Z",
+    "finished_at": "2026-03-06T15:53:00.771424+00:00"
+  }
+]
