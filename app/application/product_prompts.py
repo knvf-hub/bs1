@@ -27,14 +27,18 @@ FIXED_PROMPT_COUNT = 5
 
 def _build_openai_generator() -> OpenAIProductPromptGenerator | None:
     if settings.openai_api_key:
+        logger.debug("OpenAI generator is enabled with model=%s", settings.openai_prompt_model)
         return OpenAIProductPromptGenerator(
             api_key=settings.openai_api_key,
             model=settings.openai_prompt_model,
         )
+
+    logger.debug("OpenAI generator is disabled, no API key configured")
     return None
 
 
 def _build_heuristic_generator() -> HeuristicPromptGenerator:
+    logger.debug("Using heuristic prompt generator")
     return HeuristicPromptGenerator()
 
 
@@ -49,11 +53,24 @@ def _generate_with_fallback(
     auto_detect_style: bool,
     language: str,
 ):
+    logger.info(
+        "Start prompt generation: title=%s target=%s language=%s prompt_count=%s",
+        product.title,
+        target_platform,
+        language,
+        prompt_count,
+    )
+
     openai_generator = _build_openai_generator()
 
     if openai_generator is not None:
         try:
-            return openai_generator.generate(
+            logger.debug(
+                "Trying OpenAI generator: title=%s model=%s",
+                product.title,
+                settings.openai_prompt_model,
+            )
+            result = openai_generator.generate(
                 product=product,
                 target_platform=target_platform,
                 target_audiences=target_audiences,
@@ -63,14 +80,17 @@ def _generate_with_fallback(
                 auto_detect_style=auto_detect_style,
                 language=language,
             )
+            logger.info("OpenAI prompt generation succeeded: title=%s", product.title)
+            return result
         except Exception as e:
             logger.warning(
-                "OpenAI generator failed, fallback to heuristic generator: %s",
+                "OpenAI generator failed for title=%s, fallback to heuristic generator: %s",
+                product.title,
                 str(e),
             )
 
     heuristic_generator = _build_heuristic_generator()
-    return heuristic_generator.generate(
+    result = heuristic_generator.generate(
         product=product,
         target_platform=target_platform,
         target_audiences=target_audiences,
@@ -80,6 +100,8 @@ def _generate_with_fallback(
         auto_detect_style=auto_detect_style,
         language=language,
     )
+    logger.info("Heuristic prompt generation succeeded: title=%s", product.title)
+    return result
 
 
 def _override_product_name(
@@ -88,8 +110,17 @@ def _override_product_name(
 ) -> ExtractedProduct:
     cleaned_name = (name or "").strip()
     if not cleaned_name:
+        logger.debug(
+            "No input name override, using extracted title=%s",
+            extracted.title,
+        )
         return extracted
 
+    logger.info(
+        "Override extracted product title: old=%s new=%s",
+        extracted.title,
+        cleaned_name,
+    )
     return ExtractedProduct(
         source_url=extracted.source_url,
         source=extracted.source,
@@ -107,12 +138,28 @@ def _attach_image_assets_to_prompts(
     enriched: list[PromptVariant] = []
     selected_model: str | None = None
 
+    logger.debug(
+        "Attach image assets to prompts: prompt_count=%s preferred_model=%s",
+        len(prompts),
+        preferred_model,
+    )
+
     for prompt in prompts:
         asset = choose_image_asset(
             style=prompt.style,
             audience=prompt.audience,
             angle=prompt.angle,
             preferred_model=preferred_model,
+        )
+
+        logger.debug(
+            "Image asset selected for prompt index=%s title=%s style=%s audience=%s angle=%s asset=%s",
+            prompt.index,
+            prompt.title,
+            prompt.style,
+            prompt.audience,
+            prompt.angle,
+            asset.id if asset else None,
         )
 
         updated = prompt.model_copy(
@@ -126,14 +173,34 @@ def _attach_image_assets_to_prompts(
         if selected_model is None and asset is not None:
             selected_model = asset.id
 
+    logger.info(
+        "Finished attaching image assets: selected_model=%s prompt_count=%s",
+        selected_model,
+        len(enriched),
+    )
     return enriched, selected_model
 
 
 def generate_product_prompts(
     req: GenerateProductPromptsRequest,
 ) -> GenerateProductPromptsResponse:
+    logger.info(
+        "Generate single product prompts: url=%s target=%s language=%s",
+        req.product_url,
+        req.target_platform,
+        req.language,
+    )
+
     extractor = ProductUrlExtractor()
     product = extractor.extract(str(req.product_url))
+
+    logger.info(
+        "Product extracted from single request: source=%s title=%s url=%s",
+        product.source,
+        product.title,
+        product.source_url,
+    )
+    logger.debug("Extracted product raw data: %s", product.raw)
 
     analysis, prompts = _generate_with_fallback(
         product=product,
@@ -146,7 +213,14 @@ def generate_product_prompts(
         language=req.language,
     )
 
-    prompts, _ = _attach_image_assets_to_prompts(prompts)
+    prompts, selected_model = _attach_image_assets_to_prompts(prompts)
+
+    logger.info(
+        "Single product prompt generation completed: title=%s prompts=%s selected_model=%s",
+        product.title,
+        len(prompts),
+        selected_model,
+    )
 
     return GenerateProductPromptsResponse(
         product=product,
@@ -158,8 +232,26 @@ def generate_product_prompts(
 def generate_product_prompts_from_row(
     item: BatchGenerateProductPromptsItem,
 ) -> BatchGenerateProductPromptsResult:
+    logger.info(
+        "Generate prompts from row: no=%s link=%s target=%s language=%s preferred_model=%s",
+        item.no,
+        item.link,
+        item.target,
+        item.language,
+        item.model,
+    )
+
     extractor = ProductUrlExtractor()
     extracted = extractor.extract(str(item.link))
+
+    logger.info(
+        "Row product extracted: no=%s source=%s title=%s",
+        item.no,
+        extracted.source,
+        extracted.title,
+    )
+    logger.debug("Row extracted raw data: no=%s raw=%s", item.no, extracted.raw)
+
     product = _override_product_name(extracted, item.name)
 
     analysis, prompts = _generate_with_fallback(
@@ -178,6 +270,14 @@ def generate_product_prompts_from_row(
         preferred_model=item.model,
     )
 
+    logger.info(
+        "Row prompt generation completed: no=%s title=%s prompts=%s selected_model=%s",
+        item.no,
+        product.title,
+        len(prompts),
+        selected_model,
+    )
+
     return BatchGenerateProductPromptsResult(
         no=item.no,
         input_name=item.name,
@@ -193,7 +293,25 @@ def generate_product_prompts_from_row(
 def generate_product_prompts_from_rows(
     items: list[BatchGenerateProductPromptsItem],
 ) -> BatchGenerateProductPromptsResponse:
-    results = [generate_product_prompts_from_row(item) for item in items]
+    logger.info("Start batch product prompt generation: total_rows=%s", len(items))
+
+    results: list[BatchGenerateProductPromptsResult] = []
+
+    for item in items:
+        try:
+            result = generate_product_prompts_from_row(item)
+            results.append(result)
+        except Exception as e:
+            logger.exception(
+                "Failed to generate prompts for row no=%s link=%s: %s",
+                item.no,
+                item.link,
+                str(e),
+            )
+            raise
+
+    logger.info("Batch product prompt generation completed: total_results=%s", len(results))
+
     return BatchGenerateProductPromptsResponse(
         total=len(results),
         results=results,
