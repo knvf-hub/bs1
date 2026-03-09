@@ -109,25 +109,18 @@ def _override_product_name(
     name: str | None,
 ) -> ExtractedProduct:
     cleaned_name = (name or "").strip()
+
     if not cleaned_name:
-        logger.debug(
-            "No input name override, using extracted title=%s",
-            extracted.title,
-        )
+        logger.debug("No input name override, using extracted title=%s", extracted.title)
         return extracted
 
-    logger.info(
-        "Override extracted product title: old=%s new=%s",
-        extracted.title,
-        cleaned_name,
-    )
-    return ExtractedProduct(
-        source_url=extracted.source_url,
-        source=extracted.source,
-        title=cleaned_name,
-        summary=extracted.summary,
-        image_urls=extracted.image_urls,
-        raw=extracted.raw,
+    logger.info("Override extracted product title: old=%s new=%s", extracted.title, cleaned_name)
+
+    return extracted.model_copy(
+        update={
+            "title": cleaned_name,
+            "summary": f"สินค้าจาก {extracted.source}: {cleaned_name}",
+        }
     )
 
 
@@ -195,10 +188,12 @@ def generate_product_prompts(
     product = extractor.extract(str(req.product_url))
 
     logger.info(
-        "Product extracted from single request: source=%s title=%s url=%s",
+        "Product extracted from single request: source=%s title=%s final_url=%s image_url=%s method=%s",
         product.source,
         product.title,
-        product.source_url,
+        product.final_url,
+        product.image_url,
+        product.extraction_method,
     )
     logger.debug("Extracted product raw data: %s", product.raw)
 
@@ -245,10 +240,13 @@ def generate_product_prompts_from_row(
     extracted = extractor.extract(str(item.link))
 
     logger.info(
-        "Row product extracted: no=%s source=%s title=%s",
+        "Row product extracted: no=%s source=%s title=%s final_url=%s image_url=%s method=%s",
         item.no,
         extracted.source,
         extracted.title,
+        extracted.final_url,
+        extracted.image_url,
+        extracted.extraction_method,
     )
     logger.debug("Row extracted raw data: no=%s raw=%s", item.no, extracted.raw)
 

@@ -22,9 +22,19 @@ class GenerateProductPromptsRequest(BaseModel):
 class ExtractedProduct(BaseModel):
     source_url: HttpUrl
     source: str
+
     title: str
     summary: str | None = None
+
+    final_url: str | None = None
+    title_slug: str | None = None
+    shop_id: str | None = None
+    item_id: str | None = None
+
+    image_url: str | None = None
     image_urls: list[str] = Field(default_factory=list)
+
+    extraction_method: str | None = None
     raw: dict = Field(default_factory=dict)
 
 
