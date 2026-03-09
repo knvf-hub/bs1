@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 import re
-from urllib.parse import unquote, urlparse
+from urllib.parse import unquote, urlparse, urlunparse
 
 import requests
 from bs4 import BeautifulSoup
@@ -70,6 +70,7 @@ class ProductUrlExtractor:
 
     def _extract_shopee(self, product_url: str) -> ExtractedProduct:
         final_url = product_url
+        resolved_url = None
         html = None
         status_code = None
 
@@ -82,13 +83,15 @@ class ProductUrlExtractor:
             )
             response.raise_for_status()
 
-            final_url = response.url
+            resolved_url = response.url
+            final_url = self._sanitize_shopee_final_url(resolved_url)
             html = response.text
             status_code = response.status_code
 
             logger.info(
-                "Shopee URL resolved: original=%s final=%s status=%s",
+                "Shopee URL resolved: original=%s resolved=%s sanitized=%s status=%s",
                 product_url,
+                resolved_url,
                 final_url,
                 status_code,
             )
@@ -138,11 +141,25 @@ class ProductUrlExtractor:
             image_urls=image_urls,
             extraction_method=extraction_method,
             raw={
+                "resolved_url": resolved_url,
                 "host": parsed.netloc.lower(),
                 "path": parsed.path,
                 "query": parsed.query,
                 "status_code": status_code,
             },
+        )
+
+    def _sanitize_shopee_final_url(self, url: str) -> str:
+        parsed = urlparse(url)
+        return urlunparse(
+            (
+                parsed.scheme,
+                parsed.netloc,
+                parsed.path,
+                "",
+                "",
+                "",
+            )
         )
 
     def _parse_shopee_identity(self, path: str) -> tuple[str | None, str | None, str | None]:
