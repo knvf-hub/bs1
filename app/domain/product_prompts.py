@@ -4,6 +4,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, HttpUrl
 
+
 SupportedPlatform = Literal["tiktok", "shopee", "facebook", "instagram"]
 SupportedLanguage = Literal["th", "en"]
 
@@ -22,18 +23,14 @@ class GenerateProductPromptsRequest(BaseModel):
 class ExtractedProduct(BaseModel):
     source_url: HttpUrl
     source: str
-
     title: str
     summary: str | None = None
-
     final_url: str | None = None
     title_slug: str | None = None
     shop_id: str | None = None
     item_id: str | None = None
-
     image_url: str | None = None
     image_urls: list[str] = Field(default_factory=list)
-
     extraction_method: str | None = None
     raw: dict = Field(default_factory=dict)
 
@@ -68,7 +65,7 @@ class BatchGenerateProductPromptsItem(BaseModel):
     link: HttpUrl
     target: SupportedPlatform = "shopee"
     language: SupportedLanguage = "th"
-    model: str | None = None
+    pic_path: str | None = None
 
 
 class BatchGenerateProductPromptsResult(BaseModel):
@@ -76,6 +73,7 @@ class BatchGenerateProductPromptsResult(BaseModel):
     input_name: str | None = None
     target: SupportedPlatform
     language: SupportedLanguage
+    pic_path: list[str] = Field(default_factory=list)
     selected_model: str | None = None
     product: ExtractedProduct
     analysis: ProductAnalysis

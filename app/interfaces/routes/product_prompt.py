@@ -40,10 +40,12 @@ async def post_generate_product_prompts_from_xlsx(
     try:
         content = await file.read()
         items = _parse_xlsx_rows(content)
+
         if not items:
             raise HTTPException(status_code=400, detail="No valid rows found in xlsx")
 
         return generate_product_prompts_from_rows(items)
+
     except HTTPException:
         raise
     except Exception as e:
@@ -53,8 +55,8 @@ async def post_generate_product_prompts_from_xlsx(
 def _parse_xlsx_rows(content: bytes) -> list[BatchGenerateProductPromptsItem]:
     workbook = load_workbook(filename=BytesIO(content), data_only=True)
     worksheet = workbook.active
-
     rows = list(worksheet.iter_rows(values_only=True))
+
     if not rows:
         return []
 
@@ -66,6 +68,17 @@ def _parse_xlsx_rows(content: bytes) -> list[BatchGenerateProductPromptsItem]:
         if header not in header_index:
             raise HTTPException(status_code=400, detail=f"Missing required header: {header}")
 
+    pic_header = _find_first_header(
+        header_index,
+        ["pic_path", "pic", "image_path", "image", "PicPath", "Pic"],
+    )
+
+    if pic_header is None:
+        raise HTTPException(
+            status_code=400,
+            detail="Missing required header for image path: pic_path / pic / image_path / image",
+        )
+
     items: list[BatchGenerateProductPromptsItem] = []
 
     for row_number, row in enumerate(rows[1:], start=2):
@@ -74,12 +87,12 @@ def _parse_xlsx_rows(content: bytes) -> list[BatchGenerateProductPromptsItem]:
         link = _cell_to_str(row, header_index["Link"])
         target = (_cell_to_str(row, header_index["Target"]) or "shopee").strip().lower()
         language = (_cell_to_str(row, header_index["language"]) or "th").strip().lower()
+        pic_path = _cell_to_str(row, header_index[pic_header])
 
-        model = None
-        if "Model" in header_index:
-            model = _cell_to_str(row, header_index["Model"]) or None
+        if not no and not name and not link and not pic_path:
+            continue
 
-        if not no and not name and not link:
+        if not pic_path:
             continue
 
         if not link:
@@ -92,7 +105,7 @@ def _parse_xlsx_rows(content: bytes) -> list[BatchGenerateProductPromptsItem]:
                 link=link,
                 target=target,
                 language=language,
-                model=model,
+                pic_path=pic_path,
             )
         except ValidationError as e:
             raise HTTPException(
@@ -105,10 +118,21 @@ def _parse_xlsx_rows(content: bytes) -> list[BatchGenerateProductPromptsItem]:
     return items
 
 
+def _find_first_header(header_index: dict[str, int], candidates: list[str]) -> str | None:
+    lowered = {key.lower(): key for key in header_index.keys()}
+    for candidate in candidates:
+        found = lowered.get(candidate.lower())
+        if found:
+            return found
+    return None
+
+
 def _cell_to_str(row: tuple, index: int) -> str:
     if index >= len(row):
         return ""
+
     value = row[index]
     if value is None:
         return ""
+
     return str(value).strip()

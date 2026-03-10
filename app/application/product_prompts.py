@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 
 from app.core.config import settings
 from app.domain.product_prompts import (
@@ -12,7 +13,6 @@ from app.domain.product_prompts import (
     GenerateProductPromptsResponse,
     PromptVariant,
 )
-from app.infrastructure.image_assets import choose_image_asset
 from app.infrastructure.product_url_extractor import ProductUrlExtractor
 from app.infrastructure.prompt_generators import (
     HeuristicPromptGenerator,
@@ -23,6 +23,7 @@ logger = logging.getLogger(__name__)
 
 FIXED_STYLE_HINT: str | None = None
 FIXED_PROMPT_COUNT = 5
+DEFAULT_BATCH_PIC_DIR = Path("assets/pic")
 
 
 def _build_openai_generator() -> OpenAIProductPromptGenerator | None:
@@ -32,7 +33,6 @@ def _build_openai_generator() -> OpenAIProductPromptGenerator | None:
             api_key=settings.openai_api_key,
             model=settings.openai_prompt_model,
         )
-
     logger.debug("OpenAI generator is disabled, no API key configured")
     return None
 
@@ -62,7 +62,6 @@ def _generate_with_fallback(
     )
 
     openai_generator = _build_openai_generator()
-
     if openai_generator is not None:
         try:
             logger.debug(
@@ -109,13 +108,11 @@ def _override_product_name(
     name: str | None,
 ) -> ExtractedProduct:
     cleaned_name = (name or "").strip()
-
     if not cleaned_name:
         logger.debug("No input name override, using extracted title=%s", extracted.title)
         return extracted
 
     logger.info("Override extracted product title: old=%s new=%s", extracted.title, cleaned_name)
-
     return extracted.model_copy(
         update={
             "title": cleaned_name,
@@ -124,54 +121,70 @@ def _override_product_name(
     )
 
 
-def _attach_image_assets_to_prompts(
+def _is_remote_image_path(value: str) -> bool:
+    lowered = value.lower()
+    return lowered.startswith("http://") or lowered.startswith("https://")
+
+
+def _normalize_batch_pic_path(pic_path: str | None) -> list[str] | None:
+    if not pic_path:
+        return None
+
+    raw = pic_path.strip()
+
+    paths = [
+        p.strip()
+        for p in raw.splitlines()
+        if p.strip()
+    ]
+
+    normalized: list[str] = []
+
+    for p in paths:
+        if p.startswith("http://") or p.startswith("https://"):
+            normalized.append(p)
+            continue
+
+        path = Path(p)
+
+        if path.is_absolute():
+            normalized.append(str(path))
+            continue
+
+        if len(path.parts) == 1:
+            normalized.append(str(DEFAULT_BATCH_PIC_DIR / path.name))
+            continue
+
+        normalized.append(str(path))
+
+    return normalized
+
+
+def _attach_input_image_path_to_prompts(
     prompts: list[PromptVariant],
-    preferred_model: str | None = None,
-) -> tuple[list[PromptVariant], str | None]:
+    pic_path: str | None,
+) -> tuple[list[PromptVariant], list[str] | None]:
+
+    normalized = _normalize_batch_pic_path(pic_path)
+
+    if not normalized:
+        return prompts, None
+
     enriched: list[PromptVariant] = []
-    selected_model: str | None = None
 
-    logger.debug(
-        "Attach image assets to prompts: prompt_count=%s preferred_model=%s",
-        len(prompts),
-        preferred_model,
-    )
+    for i, prompt in enumerate(prompts):
+        image = normalized[i % len(normalized)]
 
-    for prompt in prompts:
-        asset = choose_image_asset(
-            style=prompt.style,
-            audience=prompt.audience,
-            angle=prompt.angle,
-            preferred_model=preferred_model,
+        enriched.append(
+            prompt.model_copy(
+                update={
+                    "image_asset_id": None,
+                    "image_asset_path": image,
+                }
+            )
         )
 
-        logger.debug(
-            "Image asset selected for prompt index=%s title=%s style=%s audience=%s angle=%s asset=%s",
-            prompt.index,
-            prompt.title,
-            prompt.style,
-            prompt.audience,
-            prompt.angle,
-            asset.id if asset else None,
-        )
-
-        updated = prompt.model_copy(
-            update={
-                "image_asset_id": asset.id if asset else None,
-                "image_asset_path": asset.file_path if asset else None,
-            }
-        )
-        enriched.append(updated)
-
-        if selected_model is None and asset is not None:
-            selected_model = asset.id
-
-    logger.info(
-        "Finished attaching image assets: selected_model=%s prompt_count=%s",
-        selected_model,
-        len(enriched),
-    )
-    return enriched, selected_model
+    return enriched, normalized
 
 
 def generate_product_prompts(
@@ -208,15 +221,6 @@ def generate_product_prompts(
         language=req.language,
     )
 
-    prompts, selected_model = _attach_image_assets_to_prompts(prompts)
-
-    logger.info(
-        "Single product prompt generation completed: title=%s prompts=%s selected_model=%s",
-        product.title,
-        len(prompts),
-        selected_model,
-    )
-
     return GenerateProductPromptsResponse(
         product=product,
         analysis=analysis,
@@ -228,12 +232,12 @@ def generate_product_prompts_from_row(
     item: BatchGenerateProductPromptsItem,
 ) -> BatchGenerateProductPromptsResult:
     logger.info(
-        "Generate prompts from row: no=%s link=%s target=%s language=%s preferred_model=%s",
+        "Generate prompts from row: no=%s link=%s target=%s language=%s pic_path=%s",
         item.no,
         item.link,
         item.target,
         item.language,
-        item.model,
+        item.pic_path,
     )
 
     extractor = ProductUrlExtractor()
@@ -263,17 +267,17 @@ def generate_product_prompts_from_row(
         language=item.language,
     )
 
-    prompts, selected_model = _attach_image_assets_to_prompts(
+    prompts, normalized_pic_path = _attach_input_image_path_to_prompts(
         prompts,
-        preferred_model=item.model,
+        pic_path=item.pic_path,
     )
 
     logger.info(
-        "Row prompt generation completed: no=%s title=%s prompts=%s selected_model=%s",
+        "Row prompt generation completed: no=%s title=%s prompts=%s pic_path=%s",
         item.no,
         product.title,
         len(prompts),
-        selected_model,
+        normalized_pic_path,
     )
 
     return BatchGenerateProductPromptsResult(
@@ -281,12 +285,77 @@ def generate_product_prompts_from_row(
         input_name=item.name,
         target=item.target,
         language=item.language,
-        selected_model=selected_model,
+        pic_path=normalized_pic_path,
+        selected_model=None,
         product=product,
         analysis=analysis,
         prompts=prompts,
     )
 
+
+def generate_product_prompts_from_row(
+    item: BatchGenerateProductPromptsItem,
+) -> BatchGenerateProductPromptsResult:
+    logger.info(
+        "Generate prompts from row: no=%s link=%s target=%s language=%s pic_path=%s",
+        item.no,
+        item.link,
+        item.target,
+        item.language,
+        item.pic_path,
+    )
+
+    extractor = ProductUrlExtractor()
+    extracted = extractor.extract(str(item.link))
+
+    logger.info(
+        "Row product extracted: no=%s source=%s title=%s final_url=%s image_url=%s method=%s",
+        item.no,
+        extracted.source,
+        extracted.title,
+        extracted.final_url,
+        extracted.image_url,
+        extracted.extraction_method,
+    )
+    logger.debug("Row extracted raw data: no=%s raw=%s", item.no, extracted.raw)
+
+    product = _override_product_name(extracted, item.name)
+
+    analysis, prompts = _generate_with_fallback(
+        product=product,
+        target_platform=item.target,
+        target_audiences=[],
+        style_hint=FIXED_STYLE_HINT,
+        prompt_count=FIXED_PROMPT_COUNT,
+        auto_detect_audience=True,
+        auto_detect_style=True,
+        language=item.language,
+    )
+
+    prompts, normalized_pic_paths = _attach_input_image_path_to_prompts(
+        prompts,
+        pic_path=item.pic_path,
+    )
+
+    logger.info(
+        "Row prompt generation completed: no=%s title=%s prompts=%s pic_path=%s",
+        item.no,
+        product.title,
+        len(prompts),
+        normalized_pic_paths,
+    )
+
+    return BatchGenerateProductPromptsResult(
+        no=item.no,
+        input_name=item.name,
+        target=item.target,
+        language=item.language,
+        pic_path=normalized_pic_paths or [],
+        selected_model=None,
+        product=product,
+        analysis=analysis,
+        prompts=prompts,
+    )
 
 def generate_product_prompts_from_rows(
     items: list[BatchGenerateProductPromptsItem],
@@ -294,7 +363,6 @@ def generate_product_prompts_from_rows(
     logger.info("Start batch product prompt generation: total_rows=%s", len(items))
 
     results: list[BatchGenerateProductPromptsResult] = []
-
     for item in items:
         try:
             result = generate_product_prompts_from_row(item)
